@@ -1,0 +1,212 @@
+---
+title: "U.S. Air Quality Data"
+author: "Valentina Gonzalez Bohorquez"
+date: "5/4/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE, echo=FALSE} 
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, echo = TRUE) 
+```
+
+## Project Goal: 
+#### To compare yearly pollutant parameter data for an specific county and state. This project compares PM2.5 max values for Wake County, NC for years 2017 to 2020. 
+
+
+#### API Access:
+email=lvg23@scarletmail.rutgers.edu
+key=cobaltheron82
+
+## Load the libraries. 
+```{r}
+
+library(tidyverse)
+library(jsonlite)
+library(stats)
+library(ggplot2)
+library(gridExtra)
+```
+
+## Get desired parameter code.
+```{r}
+
+parameters_link <- "https://aqs.epa.gov/data/api/list/parametersByClass?email=lvg23@scarletmail.rutgers.edu&key=cobaltheron82&pc=ALL"
+
+parametercodesdataframe <- parameters_link %>% jsonlite::fromJSON() %>% as.data.frame()
+finalparametercodes_df <- parametercodesdataframe[5:6]
+
+parametercode <- function(x){
+  return (finalparametercodes_df[finalparametercodes_df$Data.value_represented == x,][1,1])
+}
+parametercode('PM2.5 - Local Conditions')
+```
+##### Created a function that returns pollutant parameter code given the pollutant parameter name.
+
+## Get desired state code. 
+```{r}
+state_codes <- "https://aqs.epa.gov/data/api/list/states?email=lvg23@scarletmail.rutgers.edu&key=cobaltheron82"
+statecodes_df <- state_codes %>% jsonlite::fromJSON() %>% as.data.frame()
+finalstatecodes_df <- statecodes_df[5:6]
+
+statecode <- function(x){
+  return (finalstatecodes_df[finalstatecodes_df$Data.value_represented == x,][1,1])
+}
+statecode('North Carolina')
+```
+#### Created a function that returns state code given the state name.
+
+## Get desired county code.
+```{r}
+countycode <- function(statename, countyname){
+  c_url1<- "https://aqs.epa.gov/data/api/list/countiesByState?email=lvg23@scarletmail.rutgers.edu&key=cobaltheron82&state="
+  c_url2 <- statecode(statename)
+  countyurl <- paste(c_url1, c_url2,sep = "")
+  tempdf <- countyurl %>% jsonlite::fromJSON() %>% as.data.frame()
+  tempdf <- tempdf[5:6]
+  return (tempdf[tempdf$Data.value_represented == countyname,][1,1])
+}
+countycode('North Carolina', 'Wake')
+```
+#### Created a function that returns county code given the state and county name.
+
+## Daily summary data by county.
+```{r}
+tablefunction <- function(statename, countyname, parametername, year1){
+  urlpart1 <- "https://aqs.epa.gov/data/api/dailyData/byCounty?email=lvg23@scarletmail.rutgers.edu&key=cobaltheron82&param="
+  urlpart2<- "&bdate="
+  urlpart3 <- "&edate="
+  urlpart4 <- "&state="
+  urlpart5 <- "&county="
+  stateinput <- statecode(statename)
+  countyinput <- countycode(statename, countyname)
+  parameterinput <- parametercode(parametername)
+  bdateinput <- paste(year1, "0101", sep = "")
+  edateinput <- paste(year1, "1231", sep = "")
+  urlinput <- paste(urlpart1,parameterinput,urlpart2,bdateinput,urlpart3,edateinput,urlpart4, stateinput, urlpart5, countyinput, sep = "")
+  table_df <- urlinput %>% jsonlite::fromJSON() %>% as.data.frame()
+  table_df <- cbind(table_df[16:16], table_df[23:23])
+  table_df<-table_df[complete.cases(table_df),]
+  datelist<-unique(table_df$Data.date_local) 
+  
+  colnameslist<-colnames(table_df) 
+  
+  for (i in datelist) {
+    if (nrow(table_df[table_df$Data.date_local == i,]) > 1)
+    {
+      maxvalue <- max(table_df[table_df$Data.date_local == i,]$Data.first_max_value, na.rm = TRUE)
+      table_df <- table_df[table_df$Data.date_local != i,]
+      tempdf <- data.frame(i, maxvalue)
+      names(tempdf) <- c("Data.date_local","Data.first_max_value")
+      table_df <- rbind(table_df, tempdf)
+    }
+  }
+  
+  
+  table_df <- table_df[order(as.Date(table_df$Data.date_local, format="%Y-%m-%d")),]
+  return(table_df)
+}
+
+tablefunction("North Carolina", "Wake", "PM2.5 - Local Conditions", 2019)
+```
+#### Created a function that given the state, county, parameter, and year, returned the date and max value for that parameter. 
+
+## Created a function that given the state, county, parameter, and year1, year2, year3, and year4, it returned a dataframe that displayed the date and max parameter values.
+```{r}
+severalyears <- function(statename, countyname, parametername, year1, year2, year3, year4){
+  df1 <- tablefunction(statename, countyname, parametername, year1)
+  df2 <- tablefunction(statename, countyname, parametername, year2)
+  df3 <- tablefunction(statename, countyname, parametername, year3)
+  df4 <- tablefunction(statename, countyname, parametername, year4)
+  all <- rbind(df1, df2, df3, df4)
+  allyears <- data.frame(all)
+  allyears
+}
+Severalyears <- as.data.frame(severalyears("North Carolina", "Wake", "PM2.5 - Local Conditions", 2017, 2018, 2019, 2020))
+```
+
+The data frame displayed the PM2.5 max values in Wake County, NC for years 2017 to 2020.
+
+## Plotted "Severalyears" and utilized LOESS method to draw a trend line.
+```{r}
+k <- ggplot(Severalyears,
+            aes(x = as.Date(Data.date_local),
+                y = Data.first_max_value)) +
+  geom_point() + 
+  geom_smooth(color = 'red') +
+  labs(x = "Days", y = "PM2.5 Max Value",
+       title = "Wake, NC Max PM2.5 Values for 2017 to 2020")
+k
+```
+
+Between 2017 and mid-2018, the PM2.5 max value seemed to be steady. However, by late 2018 this value started to drop before slightly increasing in 2019. 
+
+## Created a dataframe that that displayed the date and max parameter values, in order to take a closer look between 2019 and 2020. 
+```{r}
+df_year1 <- as.data.frame(tablefunction("New York", "New York", "PM2.5 - Local Conditions", 2019))
+df_year2 <- as.data.frame(tablefunction("New York", "New York", "PM2.5 - Local Conditions", 2020))
+
+bothyearsdf <- rbind(df_year1, df_year2)
+bothyearsdf
+```
+
+## Plotted "bothyearsdf" and utilized LOESS method to draw a trend line.
+```{r}
+w <- ggplot(bothyearsdf,
+            aes(x = as.Date(Data.date_local),
+                y = Data.first_max_value)) +
+  geom_point() + 
+  geom_smooth(color = 'red') +
+  labs(x = "Days", y = "PM2.5 Max Value",
+       title = "New York, NY Max PM2.5 Values for 2019 and 2020")
+w
+```
+
+Between the end of 2019 and mid-2020, the PM2.5 pollutant max value decreased. The result could have been due to the COVID-19 quarantine. However, after July 2020, the PM2.5 max value seemed to began increasing, since the strict lock-down measures were lifted. 
+
+## Created a final function that given the state, county, parameter, and year1 and year2, it returned a table that displayed the year, average, minimum, maximum and standard deviation values for those particular years.
+
+```{r}
+finalfunction<- function(statename, countyname, parametername, year1, year2){
+  
+  df1 <- tablefunction(statename, countyname, parametername, year1)
+  df2 <- tablefunction(statename, countyname, parametername, year2)
+  
+  yearcolumn <- c(year1, year2)
+  avg1 <- mean(df1$Data.first_max_value)
+  avg2 <- mean(df2$Data.first_max_value)
+  averagecolumn <- c(avg1, avg2)
+  
+  min1 <- min(df1$Data.first_max_value)
+  min2 <- min(df2$Data.first_max_value)
+  mincolumn <- c(min1, min2)
+  
+  max1 <- max(df1$Data.first_max_value)
+  max2 <- max(df2$Data.first_max_value)
+  maxcolumn <- c(max1, max2)
+  
+  sd1 <- sd(df1$Data.first_max_value)
+  sd2 <- sd(df2$Data.first_max_value)
+  sdcolumn <- c(sd1, sd2)
+  
+  sdcolumn <- c(sd(df1$Data.first_max_value), sd(df2$Data.first_max_value))
+  df <- data.frame(yearcolumn, averagecolumn, mincolumn, maxcolumn, sdcolumn)
+  
+  df
+  gridExtra::grid.table(df)
+}
+```
+
+## Comparing 2016 and 2020 PM2.5 levels for Bergen County, New Jersey.
+```{r}
+finalfunction("New Jersey", "Bergen", "PM2.5 - Local Conditions", 2016, 2020)
+```
+
+The average max pollution value per day increased in Bergen County for 2020.
+
+## Comparing 2016 and 2020 PM2.5 levels for New York,NY.
+```{r}
+finalfunction("New York", "New York", "PM2.5 - Local Conditions", 2016, 2020 )
+```
+
+The average max pollution value per day decreased in New York county for 2020. The reason could have been due to Covid-19. As people fled the virus in the city, they moved to more rural areas in Bergen County. In addition to quarantine being a factor.
+
